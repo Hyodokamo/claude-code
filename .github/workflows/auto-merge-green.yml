@@ -1,0 +1,94 @@
+name: Auto Merge Green PRs
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    # Only run when the green label is added
+    if: github.event.label.name == 'risk: green'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify auto-merge eligibility
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+
+          # Confirm green label is present
+          HAS_GREEN=$(gh pr view $PR_NUMBER \
+            --json labels --jq '[.labels[].name] | contains(["risk: green"])' \
+            --repo ${{ github.repository }})
+          echo "has_green=$HAS_GREEN" >> $GITHUB_OUTPUT
+
+          # Confirm no protected-path label
+          HAS_PROTECTED=$(gh pr view $PR_NUMBER \
+            --json labels --jq '[.labels[].name] | contains(["protected-path"])' \
+            --repo ${{ github.repository }})
+          echo "has_protected=$HAS_PROTECTED" >> $GITHUB_OUTPUT
+
+          # Confirm no higher risk labels
+          HAS_HIGH_RISK=$(gh pr view $PR_NUMBER \
+            --json labels \
+            --jq '[.labels[].name] | (contains(["risk: yellow"]) or contains(["risk: red"]) or contains(["risk: black"]))' \
+            --repo ${{ github.repository }})
+          echo "has_high_risk=$HAS_HIGH_RISK" >> $GITHUB_OUTPUT
+
+          # Re-check changed files against protected paths as a safety net
+          FILES=$(gh pr view $PR_NUMBER \
+            --json files --jq '[.files[].path] | join("\n")' \
+            --repo ${{ github.repository }})
+
+          FILES_PROTECTED=false
+          for pattern in \
+            ".github/" ".claude/" "CLAUDE.md" \
+            "infra/" "terraform/" "deploy/" \
+            "trading/" "broker/" "strategy/" \
+            "backtest/" "portfolio/" "rebalance/" \
+            "package.json" "requirements" "Pipfile" \
+            "pyproject.toml" "poetry.lock" \
+            "go.mod" "go.sum" "Cargo.toml" "Cargo.lock"
+          do
+            if echo "$FILES" | grep -q "$pattern"; then
+              FILES_PROTECTED=true
+              echo "Protected path detected: $pattern"
+            fi
+          done
+          echo "files_protected=$FILES_PROTECTED" >> $GITHUB_OUTPUT
+
+      - name: Block — protected path or high risk
+        if: |
+          steps.check.outputs.has_protected == 'true' ||
+          steps.check.outputs.files_protected == 'true' ||
+          steps.check.outputs.has_high_risk == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "⚠️ **Auto-merge blocked**: This PR touches protected paths or carries a non-green risk label. Manual review by @Hyodokamo is required." \
+            --repo ${{ github.repository }}
+          echo "Auto-merge blocked."
+
+      - name: Enable auto-merge
+        if: |
+          steps.check.outputs.has_green == 'true' &&
+          steps.check.outputs.has_protected == 'false' &&
+          steps.check.outputs.files_protected == 'false' &&
+          steps.check.outputs.has_high_risk == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --auto --squash \
+            --repo ${{ github.repository }}
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "✅ **Auto-merge enabled**: Labeled green with no protected paths. Will merge automatically once all CI checks pass." \
+            --repo ${{ github.repository }}

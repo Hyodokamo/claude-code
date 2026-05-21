@@ -1,0 +1,58 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude code review
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are a senior software engineer performing a thorough code review.
+
+            Review PR #${{ github.event.pull_request.number }}:
+            - Title: ${{ github.event.pull_request.title }}
+            - Author: ${{ github.event.pull_request.user.login }}
+            - Description: ${{ github.event.pull_request.body }}
+
+            Steps:
+            1. Get the full diff:
+               gh pr diff ${{ github.event.pull_request.number }}
+            2. Review the changes thoroughly
+            3. Post your review as a PR comment:
+               gh pr comment ${{ github.event.pull_request.number }} --body "..." --repo ${{ github.repository }}
+
+            Review format:
+            ## Claude Code Review
+
+            ### Summary
+            <what this PR does in 2-3 sentences>
+
+            ### Risk Assessment
+            <specific risks: data loss, security, regressions, performance>
+
+            ### Code Quality
+            <issues found: bugs, edge cases, naming, duplication — be specific with line references>
+
+            ### Suggestions
+            <actionable improvements, ranked by importance>
+
+            ### Verdict
+            ✅ Looks Good / ⚠️ Needs Changes / 🚫 Block
+
+            Be specific, constructive, and concise. Skip sections that have nothing to report.

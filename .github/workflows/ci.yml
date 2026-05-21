@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run lint
+        run: |
+          echo "Configure lint command for your project"
+          # e.g.: npm run lint | flake8 . | golangci-lint run
+
+      - name: Run tests
+        run: |
+          echo "Configure test command for your project"
+          # e.g.: npm test | pytest | go test ./...

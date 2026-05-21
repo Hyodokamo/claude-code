@@ -1,0 +1,75 @@
+name: Claude Sprint Audit
+
+on:
+  schedule:
+    # Every Monday at 00:00 UTC (09:00 JST)
+    - cron: '0 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude sprint audit
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are conducting a weekly sprint security and quality audit for this repository.
+
+            Gather data:
+            1. Merged PRs in the last 7 days:
+               gh pr list --state merged --json number,title,author,labels,mergedAt \
+                 --search "merged:>$(date -d '7 days ago' '+%Y-%m-%d')" \
+                 --limit 100 --repo ${{ github.repository }}
+
+            2. Recent commits:
+               git log --oneline --since="7 days ago"
+
+            3. Any open PRs with risk: red or risk: black labels:
+               gh pr list --state open --label "risk: red" --repo ${{ github.repository }}
+               gh pr list --state open --label "risk: black" --repo ${{ github.repository }}
+
+            Analyze the data and create a GitHub issue with the audit report:
+              gh issue create \
+                --title "Weekly Sprint Audit — $(date '+%Y-%m-%d')" \
+                --body "..." \
+                --label "audit" \
+                --repo ${{ github.repository }}
+
+            If the "audit" label does not exist, create it first:
+              gh label create "audit" --color 0075ca --description "Automated sprint audit report" --repo ${{ github.repository }} 2>/dev/null || true
+
+            Report format:
+            ## Weekly Sprint Audit — <date>
+
+            ### Merged PRs This Week
+            | # | Title | Author | Risk | Auto-merged |
+            |---|-------|--------|------|-------------|
+            <rows>
+
+            ### Security Observations
+            <any concerns, suspicious patterns, or protected-path changes>
+
+            ### Auto-merge Activity
+            <count of auto-merged vs manually merged PRs>
+
+            ### Open High-Risk PRs
+            <any RED or BLACK PRs still open>
+
+            ### Recommendations
+            <improvements to guardrails, process, or coverage gaps>
+
+            ### Overall Health
+            🟢 Healthy / 🟡 Caution / 🔴 Action Required

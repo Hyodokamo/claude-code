@@ -1,0 +1,129 @@
+name: AI Risk Classification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure risk labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "risk: green"    --color 0e8a16 --description "Low risk, eligible for auto-merge"          --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "risk: yellow"   --color e4b429 --description "Moderate risk, manual review recommended"   --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "risk: red"      --color d93f0b --description "High risk, manual review required"          --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "risk: black"    --color 000000 --description "Critical risk, owner review mandatory"      --repo ${{ github.repository }} 2>/dev/null || true
+          gh label create "protected-path" --color 5319e7 --description "Touches protected paths, auto-merge blocked" --repo ${{ github.repository }} 2>/dev/null || true
+
+      - name: Check protected paths
+        id: protected
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILES=$(gh pr view ${{ github.event.pull_request.number }} \
+            --json files --jq '[.files[].path] | join("\n")' \
+            --repo ${{ github.repository }})
+
+          echo "=== Changed files ==="
+          echo "$FILES"
+
+          PROTECTED=false
+          PROTECTED_MATCHES=""
+
+          PATTERNS=(
+            ".github/" ".claude/" "CLAUDE.md"
+            "infra/" "terraform/" "deploy/"
+            "trading/" "broker/" "strategy/"
+            "backtest/" "portfolio/" "rebalance/"
+            "package.json" "package-lock.json" "yarn.lock" "pnpm-lock.yaml"
+            "requirements" "Pipfile" "pyproject.toml" "poetry.lock"
+            "go.mod" "go.sum" "Cargo.toml" "Cargo.lock"
+          )
+
+          for pattern in "${PATTERNS[@]}"; do
+            if echo "$FILES" | grep -q "$pattern"; then
+              PROTECTED=true
+              PROTECTED_MATCHES="$PROTECTED_MATCHES $pattern"
+            fi
+          done
+
+          echo "protected=$PROTECTED"            >> $GITHUB_OUTPUT
+          echo "protected_matches=$PROTECTED_MATCHES" >> $GITHUB_OUTPUT
+          {
+            echo "files<<EOF"
+            echo "$FILES"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Sync protected-path label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.protected.outputs.protected }}" = "true" ]; then
+            gh pr edit ${{ github.event.pull_request.number }} --add-label "protected-path" --repo ${{ github.repository }}
+          else
+            gh pr edit ${{ github.event.pull_request.number }} --remove-label "protected-path" --repo ${{ github.repository }} 2>/dev/null || true
+          fi
+
+      - name: Classify risk with Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are a risk classification system for a trading/finance software repository.
+
+            Classify the risk level of PR #${{ github.event.pull_request.number }}.
+
+            PR Info:
+            - Title: ${{ github.event.pull_request.title }}
+            - Author: ${{ github.event.pull_request.user.login }}
+            - Protected path detected: ${{ steps.protected.outputs.protected }}
+            - Protected matches: ${{ steps.protected.outputs.protected_matches }}
+
+            Changed files:
+            ${{ steps.protected.outputs.files }}
+
+            First, get the full diff to understand the changes:
+              gh pr diff ${{ github.event.pull_request.number }}
+
+            Risk level rules:
+            - BLACK: Any of the following → .github, .claude, CLAUDE.md, trading, broker, strategy,
+                     backtest, portfolio, rebalance, infra, terraform, deploy, any dependency file,
+                     src/auth, src/security. Or if protected_path is true.
+            - RED:   Business logic changes, API schema changes, data model changes, external integrations.
+            - YELLOW: Non-critical config, refactors without logic change, style fixes.
+            - GREEN:  Documentation only, tests only, minor UI copy. No logic touched.
+
+            Steps to complete:
+            1. Analyze the diff
+            2. Determine the correct risk level
+            3. Remove all existing risk labels:
+               gh pr edit ${{ github.event.pull_request.number }} --remove-label "risk: green" --remove-label "risk: yellow" --remove-label "risk: red" --remove-label "risk: black" --repo ${{ github.repository }} 2>/dev/null || true
+            4. Apply the correct label (use lowercase):
+               gh pr edit ${{ github.event.pull_request.number }} --add-label "risk: <level>" --repo ${{ github.repository }}
+            5. Post a classification comment:
+               gh pr comment ${{ github.event.pull_request.number }} --body "..." --repo ${{ github.repository }}
+
+            Comment format:
+            ## AI Risk Classification
+
+            **Risk Level**: 🟢 GREEN / 🟡 YELLOW / 🔴 RED / ⚫ BLACK
+
+            **Reason**: <brief explanation of why this level was chosen>
+
+            **Protected paths touched**: Yes — `<list>` / No
+
+            **Auto-merge eligible**: Yes / No
