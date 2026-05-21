@@ -1,0 +1,36 @@
+# GitHub configuration and CI/CD
+.github/**                        @hyodo.tetsuro
+
+# Claude configuration
+.claude/**                        @hyodo.tetsuro
+
+# Infrastructure and deployment
+infra/**                          @hyodo.tetsuro
+terraform/**                      @hyodo.tetsuro
+deploy/**                         @hyodo.tetsuro
+
+# Trading and business logic
+strategy/**                       @hyodo.tetsuro
+trading/**                        @hyodo.tetsuro
+broker/**                         @hyodo.tetsuro
+orders/**                         @hyodo.tetsuro
+
+# Authentication and security
+src/auth/**                       @hyodo.tetsuro
+src/security/**                   @hyodo.tetsuro
+
+# Dependency files
+package.json                      @hyodo.tetsuro
+package-lock.json                 @hyodo.tetsuro
+yarn.lock                         @hyodo.tetsuro
+pnpm-lock.yaml                    @hyodo.tetsuro
+requirements.txt                  @hyodo.tetsuro
+requirements*.txt                 @hyodo.tetsuro
+Pipfile                           @hyodo.tetsuro
+Pipfile.lock                      @hyodo.tetsuro
+pyproject.toml                    @hyodo.tetsuro
+poetry.lock                       @hyodo.tetsuro
+go.mod                            @hyodo.tetsuro
+go.sum                            @hyodo.tetsuro
+Cargo.toml                        @hyodo.tetsuro
+Cargo.lock                        @hyodo.tetsuro
