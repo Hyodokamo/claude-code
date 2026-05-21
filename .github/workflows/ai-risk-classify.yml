@@ -1,0 +1,76 @@
+﻿name: ai-risk-classify
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  classify:
+    name: classify changed files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files and classify risk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Base branch: ${{ github.base_ref }}"
+          echo "Head branch: ${{ github.head_ref }}"
+
+          git fetch origin "${{ github.base_ref }}" --depth=1
+
+          CHANGED_FILES=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          HIGH_RISK=0
+          MEDIUM_RISK=0
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            case "$file" in
+              .github/workflows/*)
+                echo "HIGH: $file changes GitHub Actions workflows"
+                HIGH_RISK=1
+                ;;
+              .github/CODEOWNERS)
+                echo "HIGH: $file changes CODEOWNERS"
+                HIGH_RISK=1
+                ;;
+              src/security/*)
+                echo "HIGH: $file changes security-related code"
+                HIGH_RISK=1
+                ;;
+              package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
+                echo "MEDIUM: $file changes dependencies"
+                MEDIUM_RISK=1
+                ;;
+              *)
+                echo "LOW: $file"
+                ;;
+            esac
+          done <<< "$CHANGED_FILES"
+
+          echo ""
+          echo "Risk summary:"
+          echo "HIGH_RISK=$HIGH_RISK"
+          echo "MEDIUM_RISK=$MEDIUM_RISK"
+
+          if [ "$HIGH_RISK" -eq 1 ]; then
+            echo "This PR contains high-risk changes. Manual review is required."
+            exit 1
+          fi
+
+          echo "No high-risk changes detected."
