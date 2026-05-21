@@ -14,25 +14,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Get changed files and classify risk
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Base branch: ${{ github.base_ref }}"
-          echo "Head branch: ${{ github.head_ref }}"
+          echo "Repository: ${REPOSITORY}"
+          echo "Pull request: #${PR_NUMBER}"
 
-          git fetch origin "${{ github.base_ref }}" --depth=1
-
-          CHANGED_FILES=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+          gh api --paginate \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --jq '.[].filename' > changed_files.txt
 
           echo "Changed files:"
-          echo "$CHANGED_FILES"
+          cat changed_files.txt
 
           HIGH_RISK=0
           MEDIUM_RISK=0
@@ -54,19 +53,19 @@ jobs:
                 HIGH_RISK=1
                 ;;
               package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
-                echo "MEDIUM: $file changes dependencies"
+                echo "MEDIUM: $file changes dependencies or lock files"
                 MEDIUM_RISK=1
                 ;;
               *)
                 echo "LOW: $file"
                 ;;
             esac
-          done <<< "$CHANGED_FILES"
+          done < changed_files.txt
 
           echo ""
           echo "Risk summary:"
-          echo "HIGH_RISK=$HIGH_RISK"
-          echo "MEDIUM_RISK=$MEDIUM_RISK"
+          echo "HIGH_RISK=${HIGH_RISK}"
+          echo "MEDIUM_RISK=${MEDIUM_RISK}"
 
           if [ "$HIGH_RISK" -eq 1 ]; then
             echo "This PR contains high-risk changes. Manual review is required."
